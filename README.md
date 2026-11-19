@@ -1,0 +1,38 @@
+# 定时打卡助手
+
+用于固定放置的安卓手机，按可编辑计划唤醒屏幕、进入得力 e+、观察自动打卡结果，必要时提交一次对应按钮操作，再保存结果与熄屏。
+
+默认计划为北京时间周一至周五 09:10、11:35、13:40、18:05。每轮最多一分钟，支持日期例外、重新登录、本地日志和 GitHub 断网补传。
+
+## 安装与使用
+
+1. 安装 [`releases/daka-0.1.0.apk`](releases/daka-0.1.0.apk)。安卓最低版本为 6.0。
+2. 按[手机配置说明](docs/手机安装与配置.md)设置目标应用、组织、无障碍与定时权限。
+3. 按[GitHub 日志配置](docs/GitHub日志配置.md)设置限定本仓库的访问令牌。
+4. 先完成“两分钟后测试亮屏”，再执行用户知情的真实打卡测试。
+5. 正式机荣耀 8 通过连续运行验收后启用无人值守。vivo 测试通过不能代替荣耀 8 验收。
+
+## 远程状态
+
+源码使用当前项目分支。手机状态与执行日志写入同一仓库的 `device-logs` 分支。
+
+- [荣耀 8 状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/honor8-main/status.md)
+- [vivo 测试机状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-test/status.md)
+
+最后上报时间可用于判断状态是否过期。页面“成功”代表 App 本次回执被确认，班次归属仍需与单位记录核对。具体开发检查和实机待测项见[验收记录](qa/验收记录.md)。
+
+## 本地构建
+
+需要 JDK 17／21、Android SDK Platform 35、Build Tools 35.0.0。Gradle 8.9 已通过 Wrapper 锁定，运行时采用平台 API，未引入自动化付费插件。
+
+Windows 示例，在项目根目录运行：
+
+```powershell
+.\scripts\build.ps1 -JdkHome '你的JDK目录' -SdkRoot '你的Android SDK目录'
+```
+
+网络需要镜像时增加 `-UseMirror`；如果需要本机 HTTP 代理，增加 `-Proxy 'http://127.0.0.1:端口'`。`-GradleHome` 可指向已安装的 Gradle 8.9。
+
+脚本运行单元测试、Lint、生成签名 APK 并核对签名。首次构建会在 `.tools/signing` 生成本地签名密钥和凭据。请妥善备份整个签名目录，以便未来覆盖升级；该目录由 Git 忽略。
+
+项目与文档位于 `D:\daka`。[完整实现方案](安卓定时打卡工具_完整实现方案.md)记录需求、默认取舍和验收规则。
