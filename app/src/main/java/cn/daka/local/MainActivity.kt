@@ -69,6 +69,7 @@ class MainActivity : Activity() {
         button("编辑时间与日期例外") { page = "plans"; plans() }
         button("环境检查与权限") { page = "permissions"; permissions() }
         button("两分钟后测试亮屏") { Scheduler.testWake(this); message("已安排两分钟后测试。现在可以返回桌面并熄屏；测试只打开本工具。") }
+        button("十秒后快速测试亮屏") { Scheduler.testWake(this, 10_000); message("已安排十秒后亮屏测试，请立即返回桌面并熄屏。") }
         text("最近亮屏测试：${cfg.text("wakeTestResult", "尚未测试")}")
         button("选择计划进行真实打卡测试") {
             val list = cfg.plans()
@@ -82,7 +83,7 @@ class MainActivity : Activity() {
         db.recent(1).firstOrNull()?.let { text("最近执行：${Times.format(it.scheduled)} ${it.name}\n${it.outcome} · ${it.detail}\n${it.sleep}") }
         button("查看执行记录") { page = "logs"; logs() }
         button("设置应用、登录和 GitHub") { page = "settings"; settings() }
-        text("最近上传：${cfg.text("lastUpload", "尚无")}\n待同步文件：${db.pending().size}\n${cfg.text("syncError")}")
+        text("最近上传：${cfg.text("lastUpload", "尚无")}\n待同步文件：${db.pending().size}\n${if (cfg.text("secret-github").isBlank()) "GitHub 令牌尚未配置" else cfg.text("syncError")}")
         button("立即同步远程日志") { cfg.set("retryAt", "0"); db.dirtyStatus(); UploadJob.kick(this); message("已加入同步队列，需要可用网络与正确的 GitHub 令牌。") }
         button("打开 GitHub 状态页") { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${cfg.repo}/blob/${cfg.branch}/devices/${cfg.device}/status.md"))) }
         button("刷新状态") { home() }

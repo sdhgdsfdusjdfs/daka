@@ -58,9 +58,9 @@ object Scheduler {
         if (service == null) { db.begin(id, o); db.finish(id, "失败", "无障碍服务未连接"); UploadJob.kick(c); return }
         service.startRun(id, if (manual) o.copy(plan = o.plan.copy(name = "测试 · ${o.plan.name}")) else o, manual)
     }
-    fun testWake(c: Context) {
+    fun testWake(c: Context, delayMillis: Long = 120_000) {
         check(precise(c)) { "请先允许精确闹钟" }
-        alarm(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 120_000, pending(c, Intent(c, AlarmReceiver::class.java).putExtra("wakeTest", true), 2))
+        alarm(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + delayMillis, pending(c, Intent(c, AlarmReceiver::class.java).putExtra("wakeTest", true), 2))
     }
 }
 

@@ -17,6 +17,11 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.WindowManager
+import android.view.Gravity
+import android.widget.TextView
+import android.graphics.PixelFormat
+import android.util.Log
 
 class ScreenAdmin : DeviceAdminReceiver()
 
@@ -24,12 +29,14 @@ private data class Session(val id: String, val occurrence: Occurrence, val manua
     val recovered: Boolean, val beganElapsed: Long = SystemClock.elapsedRealtime(), var launchedThisSession: Boolean = false,
     var verifiedOrganization: Boolean = false, var receipt: Receipt? = null, var dismissedReceipt: Boolean = false,
     var workbenchSince: Long = 0, var swipes: Int = 0, var lastSwipe: Long = 0, var navigated: Boolean = false,
-    var scrolled: Boolean = false, var phase: String = "", var targetSeen: Boolean = false)
+    var scrolled: Boolean = false, var phase: String = "", var targetSeen: Boolean = false, var launchElapsed: Long = 0,
+    var blockedReason: String? = null)
 
 class DakaAccessibility : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var session: Session? = null
     private var lock: PowerManager.WakeLock? = null
+    private var wakeOverlay: TextView? = null
     private var testing = false
     private var testUntil = 0L
     private var testSwipes = 0
@@ -62,7 +69,7 @@ class DakaAccessibility : AccessibilityService() {
             phase("中断恢复：只核对当前页面记录")
         } else {
             hold(remaining + 5000)
-            try { startActivity(Intent(this, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            try { showWakeOverlay(); handler.postDelayed({ if (session?.id == id && session?.launchedThisSession == false) launchWakePage() }, 400) }
             catch (_: Exception) { finish("失败", "系统阻止后台亮屏，请检查悬浮窗与后台权限"); return }
         }
         handler.removeCallbacks(tick); handler.post(tick); UploadJob.kick(this)
@@ -72,7 +79,7 @@ class DakaAccessibility : AccessibilityService() {
         testing = true; testUntil = SystemClock.elapsedRealtime() + 15_000; testSwipes = 0
         hold(20_000)
         DakaApp.config.set("wakeTestResult", "等待验证")
-        try { startActivity(Intent(this, WakeActivity::class.java).putExtra("test", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        try { showWakeOverlay(); handler.postDelayed({ if (testing) launchWakePage() }, 400) }
         catch (_: Exception) { stopTest("失败：系统阻止后台打开测试页"); return }
         handler.post(tick)
     }
@@ -80,12 +87,31 @@ class DakaAccessibility : AccessibilityService() {
     @Suppress("DEPRECATION") private fun hold(timeout: Long) {
         release()
         val pm = getSystemService(PowerManager::class.java)
-        val flags = if (Build.VERSION.SDK_INT < 27) PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP else PowerManager.PARTIAL_WAKE_LOCK
+        val flags = if (Build.VERSION.SDK_INT < 27) PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP else PowerManager.PARTIAL_WAKE_LOCK
         lock = pm.newWakeLock(flags, "$packageName:execution").apply { acquire(timeout) }
     }
-    private fun release() { lock?.let { if (it.isHeld) it.release() }; lock = null }
+    private fun launchWakePage() {
+        if (session?.launchedThisSession == true) return
+        try {
+            Log.i("Daka", "Opening wake page; interactive=${getSystemService(PowerManager::class.java).isInteractive}")
+            startActivity(Intent(this, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+            if (testing) stopTest("失败：后台亮屏页面被系统阻止") else finish("失败", "后台亮屏页面被系统阻止")
+        }
+    }
+    private fun showWakeOverlay() {
+        if (wakeOverlay != null) return
+        val overlay = TextView(this).apply { text = "定时打卡助手 · 正在唤醒"; textSize = 16f; setTextColor(android.graphics.Color.WHITE); setBackgroundColor(0xff176b5b.toInt()); setPadding(24, 16, 24, 16) }
+        val params = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, PixelFormat.TRANSLUCENT)
+        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; params.y = 160
+        getSystemService(WindowManager::class.java).addView(overlay, params); wakeOverlay = overlay
+    }
+    private fun removeWakeOverlay() { wakeOverlay?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }; wakeOverlay = null }
+    private fun release() { removeWakeOverlay(); lock?.let { if (it.isHeld) it.release() }; lock = null }
     private fun stopTest(message: String) {
         testing = false; DakaApp.config.set("wakeTestResult", "${Times.format(System.currentTimeMillis())} $message")
+        Log.i("Daka", "Wake test: $message")
         WakeActivity.current?.finish(); release(); DakaApp.store.dirtyStatus(); UploadJob.kick(this)
     }
     private fun inspectSafely() {
@@ -97,7 +123,10 @@ class DakaAccessibility : AccessibilityService() {
         val nowElapsed = SystemClock.elapsedRealtime()
         if (testing) {
             if (pm.isInteractive && !km.isKeyguardLocked && WakeActivity.current?.hasWindowFocus() == true) { stopTest("成功：定时亮屏并解除无密码锁屏"); return }
-            if (nowElapsed >= testUntil) { stopTest("失败：未能完成亮屏或解除锁屏"); return }
+            if (nowElapsed >= testUntil) {
+                stopTest("失败：亮屏=${pm.isInteractive}，锁屏=${km.isKeyguardLocked}，测试页=${WakeActivity.current != null}，焦点=${WakeActivity.current?.hasWindowFocus() == true}")
+                return
+            }
             if (km.isKeyguardLocked && testSwipes < 2 && nowElapsed >= testUntil - 12_000 + testSwipes * 4000) { swipeUp(); testSwipes++ }
             return
         }
@@ -105,7 +134,9 @@ class DakaAccessibility : AccessibilityService() {
         val cfg = DakaApp.config; val run = requireNotNull(DakaApp.store.run(s.id))
         if (!s.manual && !cfg.enabled) { finish(if (run.launched) "结果未知" else "已暂停", "总开关已关闭"); return }
         if (nowElapsed >= s.deadlineElapsed || System.currentTimeMillis() >= s.occurrence.at + 60_000) {
-            finish(if (run.launched || run.clicked) "结果未知" else "失败", "执行窗口结束：${s.phase}"); return
+            if (!run.clicked && s.blockedReason != null) finish("条件不满足", s.blockedReason!!)
+            else finish(if (run.launched || run.clicked) "结果未知" else "失败", "执行窗口结束：${s.phase}")
+            return
         }
         if (!pm.isInteractive || km.isKeyguardLocked) {
             phase("等待屏幕点亮与无密码解锁")
@@ -115,15 +146,25 @@ class DakaAccessibility : AccessibilityService() {
             return
         }
         if (!run.launched && !s.recovered) {
+            // A launch requested before this page actually resumes can be blocked,
+            // or overtaken by the delayed wake-page launch. Wait for a visible anchor.
+            if (WakeActivity.current?.hasWindowFocus() != true) {
+                phase("等待亮屏页面进入前台")
+                if (nowElapsed - s.beganElapsed > 12_000) finish("失败", "亮屏页面未能进入前台，请检查后台启动设置")
+                return
+            }
             val launch = packageManager.getLaunchIntentForPackage(cfg.target)
             if (launch == null) { finish("失败", "找不到目标应用启动入口"); return }
             DakaApp.store.flag(s.id, "launched"); phase("打开目标应用，等待自动打卡")
             s.launchedThisSession = true
-            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); WakeActivity.current?.finish(); return
+            s.launchElapsed = nowElapsed
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); removeWakeOverlay()
+            handler.postDelayed({ if (session?.id == s.id) WakeActivity.current?.finish() }, 600)
+            return
         }
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != cfg.target) {
-            if (s.recovered || nowElapsed - s.beganElapsed > 15_000) finish("结果未知", "目标应用未处于前台，请检查启动权限")
+            if (s.recovered || nowElapsed - s.launchElapsed > 15_000) finish("结果未知", "目标应用未处于前台，请检查启动权限")
             return
         }
         s.targetSeen = true
@@ -199,7 +240,11 @@ class DakaAccessibility : AccessibilityService() {
         if (s.workbenchSince == 0L) s.workbenchSince = nowElapsed
         if (run.clicked || s.recovered) { phase("等待本次提交回执，避免重复提交"); return }
         if (nowElapsed - s.workbenchSince < 15_000) { phase("观察自动打卡结果"); return }
-        if (listOf("未连接打卡", "不在打卡范围", "获取当前位置失败", "手机未开启", "外勤打卡").any { joined.contains(it) }) { phase("等待定位与打卡网络就绪"); return }
+        if (listOf("未连接打卡", "不在打卡范围", "获取当前位置失败", "手机未开启", "外勤打卡").any { joined.contains(it) }) {
+            s.blockedReason = if (joined.contains("外勤打卡")) "页面显示外勤打卡，等待实际地点及指定网络后再验证" else "现场定位或指定打卡网络条件未满足"
+            phase("等待定位与打卡网络就绪"); return
+        }
+        s.blockedReason = null
         val opposite = if (s.occurrence.plan.kind == "上班") "下班打卡" else "上班打卡"
         if (texts.any { it.startsWith(opposite) }) { finish("失败", "当前按钮类型与计划不一致"); return }
         val expected = "${s.occurrence.plan.kind}打卡"
@@ -208,7 +253,7 @@ class DakaAccessibility : AccessibilityService() {
             if (!s.scrolled) { nodes.firstOrNull { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); s.scrolled = true }
             phase("等待唯一的打卡按钮，可能需要页面适配"); return
         }
-        if (!joined.contains("已连接上打卡WiFi") && !joined.contains("已连接打卡WiFi") && cfg.text("allowGps") != "true") { phase("等待已连接打卡 Wi-Fi 提示"); return }
+        if (!joined.contains("已连接上打卡WiFi") && !joined.contains("已连接打卡WiFi") && cfg.text("allowGps") != "true") { s.blockedReason = "未确认连接指定打卡 Wi-Fi"; phase("等待已连接打卡 Wi-Fi 提示"); return }
         if (s.deadlineElapsed - nowElapsed < 5000) { phase("剩余时间不足，等待自动回执"); return }
         DakaApp.store.flag(s.id, "clicked"); phase("提交一次备用按钮点击")
         if (!clickNode(buttons.single())) finish("结果未知", "按钮点击无法确认，保留待核对状态")
