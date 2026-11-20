@@ -45,6 +45,7 @@ class DakaAccessibility : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var session: Session? = null
     private var lock: PowerManager.WakeLock? = null
+    private var screenLock: PowerManager.WakeLock? = null
     private var wakeOverlay: TextView? = null
     private var testing = false
     private var exitOnlyTest = false
@@ -118,10 +119,8 @@ class DakaAccessibility : AccessibilityService() {
         try {
             hold((current.deadlineElapsed - SystemClock.elapsedRealtime()).coerceAtLeast(1) + 12_000)
             showWakeOverlay()
-            val attempt = current.attemptNumber
-            handler.postDelayed({
-                if (session?.id == current.id && session?.attemptNumber == attempt && session?.stage == RunStage.WAKING) launchWakePage()
-            }, 400)
+            // Start while the alarm receiver's temporary execution allowance is still active.
+            launchWakePage()
         } catch (_: Exception) {
             retryOrFinish("系统阻止后台亮屏，请检查权限")
         }
@@ -151,7 +150,7 @@ class DakaAccessibility : AccessibilityService() {
         testing = true; testUntil = SystemClock.elapsedRealtime() + if (exitTest) 30_000 else 15_000; testSwipes = 0
         hold(if (exitTest) 35_000 else 20_000)
         DakaApp.config.set(if (exitTest) "stopTestResult" else "wakeTestResult", "等待验证")
-        try { showWakeOverlay(); handler.postDelayed({ if (testing) launchWakePage() }, 400) }
+        try { showWakeOverlay(); launchWakePage() }
         catch (_: Exception) { stopTest("失败：系统阻止后台打开测试页"); return }
         handler.post(tick)
     }
@@ -163,14 +162,22 @@ class DakaAccessibility : AccessibilityService() {
     @Suppress("DEPRECATION") private fun hold(timeout: Long) {
         release()
         val pm = getSystemService(PowerManager::class.java)
-        val flags = if (Build.VERSION.SDK_INT < 27) PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP else PowerManager.PARTIAL_WAKE_LOCK
-        lock = pm.newWakeLock(flags, "$packageName:execution").apply { acquire(timeout) }
+        lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:execution").apply { acquire(timeout) }
+        // The activity's turnScreenOn path can be blocked while the display is off on OEM systems.
+        // Keep this separate from the CPU lock: ACQUIRE_CAUSES_WAKEUP cannot accompany PARTIAL_WAKE_LOCK.
+        if (!pm.isInteractive) {
+            runCatching {
+                screenLock = pm.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "$packageName:screen-wake").apply { acquire(8_000) }
+            }.onFailure { DakaApp.config.set("wakeDiagnostic", "系统拒绝直接亮屏请求") }
+        }
     }
     private fun launchWakePage() {
         if (!testing && session?.stage !in setOf(RunStage.WAKING, RunStage.READY)) return
         try {
             Log.i("Daka", "Opening wake page; interactive=${getSystemService(PowerManager::class.java).isInteractive}")
-            startActivity(Intent(this, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            DakaApp.config.set("wakeDiagnostic", "${Times.format(System.currentTimeMillis())} 请求唤醒页；亮屏=${getSystemService(PowerManager::class.java).isInteractive}")
+            startActivity(Intent(this, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         } catch (_: Exception) {
             if (testing) stopTest("失败：后台亮屏页面被系统阻止") else retryOrFinish("后台亮屏页面被系统阻止", "失败")
         }
@@ -184,7 +191,11 @@ class DakaAccessibility : AccessibilityService() {
         getSystemService(WindowManager::class.java).addView(overlay, params); wakeOverlay = overlay
     }
     private fun removeWakeOverlay() { wakeOverlay?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }; wakeOverlay = null }
-    private fun release() { removeWakeOverlay(); lock?.let { if (it.isHeld) it.release() }; lock = null }
+    private fun release() {
+        removeWakeOverlay()
+        screenLock?.let { if (it.isHeld) it.release() }; screenLock = null
+        lock?.let { if (it.isHeld) it.release() }; lock = null
+    }
     private fun stopTest(message: String) {
         testing = false
         DakaApp.config.set(if (exitOnlyTest) "stopTestResult" else "wakeTestResult", "${Times.format(System.currentTimeMillis())} $message")
