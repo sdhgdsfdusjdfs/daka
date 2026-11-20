@@ -25,7 +25,7 @@ import android.util.Log
 
 class ScreenAdmin : DeviceAdminReceiver()
 
-private enum class RunStage { WAKING, STOPPING, READY, ACTIVE, CLEANUP }
+private enum class RunStage { WAKING, READY, ACTIVE, CLEANUP }
 
 private data class Session(val id: String, val occurrence: Occurrence, val manual: Boolean, val deadlineElapsed: Long,
     val target: String, val organization: String,
@@ -37,7 +37,7 @@ private data class Session(val id: String, val occurrence: Occurrence, val manua
     var stage: RunStage = RunStage.WAKING,
     var attemptNumber: Int = 0,
     var attemptStartedAt: Long = beganElapsed,
-    var stopper: AppStopper? = null,
+    var exit: AppExit? = null,
     var loginAttemptSent: Boolean = false,
     var lastSubmissionAt: Long = 0)
 
@@ -47,8 +47,11 @@ class DakaAccessibility : AccessibilityService() {
     private var lock: PowerManager.WakeLock? = null
     private var wakeOverlay: TextView? = null
     private var testing = false
-    private var stopOnlyTest = false
-    private var testStopper: AppStopper? = null
+    private var exitOnlyTest = false
+    private var testExit: AppExit? = null
+    private var testLaunchElapsed = 0L
+    private var testTarget = ""
+    private var testOrganization = ""
     private var testUntil = 0L
     private var testSwipes = 0
     private val tick = object : Runnable {
@@ -109,7 +112,7 @@ class DakaAccessibility : AccessibilityService() {
         current.scrolled = false
         current.loginAttemptSent = false
         current.blockedReason = null
-        current.stopper = null
+        current.exit = null
         WakeActivity.current?.finish()
         phase("第${current.attemptNumber}次尝试：$reason")
         try {
@@ -138,21 +141,23 @@ class DakaAccessibility : AccessibilityService() {
         }
     }
 
-    fun wakeTest() {
+    fun wakeTest(exitTest: Boolean = false) {
         if (session != null || testing) return
-        stopOnlyTest = false
-        testStopper = null
-        testing = true; testUntil = SystemClock.elapsedRealtime() + 15_000; testSwipes = 0
-        hold(20_000)
-        DakaApp.config.set("wakeTestResult", "等待验证")
+        exitOnlyTest = exitTest
+        testExit = null
+        testLaunchElapsed = 0L
+        testTarget = DakaApp.config.target
+        testOrganization = DakaApp.config.organization
+        testing = true; testUntil = SystemClock.elapsedRealtime() + if (exitTest) 30_000 else 15_000; testSwipes = 0
+        hold(if (exitTest) 35_000 else 20_000)
+        DakaApp.config.set(if (exitTest) "stopTestResult" else "wakeTestResult", "等待验证")
         try { showWakeOverlay(); handler.postDelayed({ if (testing) launchWakePage() }, 400) }
         catch (_: Exception) { stopTest("失败：系统阻止后台打开测试页"); return }
         handler.post(tick)
     }
-    fun testStopTarget() {
+    fun testExitTarget() {
         if (session != null || testing || DakaApp.config.target.isBlank()) return
-        wakeTest()
-        if (testing) stopOnlyTest = true
+        wakeTest(true)
     }
     fun cancelRun() { if (session != null) finish("结果未知", "用户停止了当前操作，请核对已提交记录"); if (testing) stopTest("测试已取消") }
     @Suppress("DEPRECATION") private fun hold(timeout: Long) {
@@ -182,14 +187,14 @@ class DakaAccessibility : AccessibilityService() {
     private fun release() { removeWakeOverlay(); lock?.let { if (it.isHeld) it.release() }; lock = null }
     private fun stopTest(message: String) {
         testing = false
-        DakaApp.config.set(if (stopOnlyTest) "stopTestResult" else "wakeTestResult", "${Times.format(System.currentTimeMillis())} $message")
-        testStopper = null
+        DakaApp.config.set(if (exitOnlyTest) "stopTestResult" else "wakeTestResult", "${Times.format(System.currentTimeMillis())} $message")
+        testExit = null
         Log.i("Daka", "Wake test: $message")
         WakeActivity.current?.finish(); release(); DakaApp.store.dirtyStatus(); UploadJob.kick(this)
     }
     private fun inspectSafely() {
         try { inspect() } catch (_: Exception) {
-            if (session?.stage == RunStage.CLEANUP) completeCleanup("退出失败：系统页面操作异常")
+            if (session?.stage == RunStage.CLEANUP) completeCleanup("退出失败：返回工作台操作异常")
             else if (session != null) retryOrFinish("页面操作异常")
             if (testing) stopTest("失败：测试过程异常")
         }
@@ -199,33 +204,43 @@ class DakaAccessibility : AccessibilityService() {
         val pm = getSystemService(PowerManager::class.java)
         val nowElapsed = SystemClock.elapsedRealtime()
         if (testing) {
-            if (stopOnlyTest && pm.isInteractive && !km.isKeyguardLocked) {
-                if (testStopper == null && WakeActivity.current?.hasWindowFocus() == true) {
-                    testStopper = AppStopper(this, DakaApp.config.target, nowElapsed)
+            if (exitOnlyTest && pm.isInteractive && !km.isKeyguardLocked) {
+                if (testLaunchElapsed == 0L && WakeActivity.current?.hasWindowFocus() == true) {
+                    val launch = packageManager.getLaunchIntentForPackage(testTarget)
+                    if (launch == null) { stopTest("失败：找不到目标应用启动入口"); return }
+                    testLaunchElapsed = nowElapsed
+                    startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                    handler.postDelayed({
+                        if (testing && exitOnlyTest) { WakeActivity.current?.finish(); removeWakeOverlay() }
+                    }, 600)
+                    return
                 }
-                when (testStopper?.step(nowElapsed)) {
-                    AppStopper.Result.STOPPED -> { stopTest("成功：系统已确认目标应用处于停止状态"); return }
-                    AppStopper.Result.FAILED -> { stopTest("失败：未能确认目标应用已停止"); return }
-                    else -> Unit
+                if (testLaunchElapsed != 0L && nowElapsed - testLaunchElapsed >= RetryPolicy.BUFFER_MILLIS) {
+                    if (testExit == null) testExit = AppExit(this, testTarget, testOrganization, nowElapsed)
+                    if (testExit?.step(nowElapsed) == AppExit.Result.DONE) {
+                        val detail = testExit?.detail.orEmpty()
+                        stopTest(detail)
+                        requestScreenOff { result ->
+                            DakaApp.config.set("exitTestSleepResult", result)
+                            DakaApp.store.dirtyStatus(); UploadJob.kick(this)
+                        }
+                        return
+                    }
                 }
             }
-            if (!stopOnlyTest && pm.isInteractive && !km.isKeyguardLocked && WakeActivity.current?.hasWindowFocus() == true) { stopTest("成功：定时亮屏并解除无密码锁屏"); return }
+            if (!exitOnlyTest && pm.isInteractive && !km.isKeyguardLocked && WakeActivity.current?.hasWindowFocus() == true) { stopTest("成功：定时亮屏并解除无密码锁屏"); return }
             if (nowElapsed >= testUntil) {
                 stopTest("失败：亮屏=${pm.isInteractive}，锁屏=${km.isKeyguardLocked}，测试页=${WakeActivity.current != null}，焦点=${WakeActivity.current?.hasWindowFocus() == true}")
                 return
             }
-            if (km.isKeyguardLocked && testSwipes < 2 && nowElapsed >= testUntil - 12_000 + testSwipes * 4000) { swipeUp(); testSwipes++ }
+            if (km.isKeyguardLocked && testSwipes < 2 && nowElapsed >= testUntil - (if (exitOnlyTest) 27_000 else 12_000) + testSwipes * 4000) { swipeUp(); testSwipes++ }
             return
         }
         val s = session ?: return
         val cfg = DakaApp.config
         val run = requireNotNull(DakaApp.store.run(s.id))
         if (s.stage == RunStage.CLEANUP) {
-            when (s.stopper?.step(nowElapsed)) {
-                AppStopper.Result.STOPPED -> completeCleanup("已强行停止得力 e+")
-                AppStopper.Result.FAILED, null -> completeCleanup("退出失败：未能确认强行停止")
-                AppStopper.Result.WAITING -> Unit
-            }
+            if (s.exit?.step(nowElapsed) == AppExit.Result.DONE) completeCleanup(s.exit?.detail.orEmpty())
             return
         }
         if (s.receipt != null && s.verifiedOrganization &&
@@ -256,22 +271,9 @@ class DakaAccessibility : AccessibilityService() {
                 if (nowElapsed - s.attemptStartedAt > 12_000) retryOrFinish("亮屏页面未进入前台", "失败")
                 return
             }
-            s.stopper = AppStopper(this, s.target, nowElapsed)
-            s.stage = RunStage.STOPPING
-            phase("第${s.attemptNumber}次：彻底退出得力 e+")
-            return
-        }
-        if (s.stage == RunStage.STOPPING) {
-            when (s.stopper?.step(nowElapsed)) {
-                AppStopper.Result.STOPPED -> {
-                    DakaApp.store.note(s.id, "已验证得力处于停止状态")
-                    s.stage = RunStage.READY
-                    s.launchElapsed = nowElapsed
-                    launchWakePage()
-                }
-                AppStopper.Result.FAILED, null -> retryOrFinish("未能确认得力已彻底退出", "失败")
-                AppStopper.Result.WAITING -> Unit
-            }
+            s.stage = RunStage.READY
+            s.launchElapsed = nowElapsed
+            phase("第${s.attemptNumber}次：准备从启动入口重新打开页面")
             return
         }
         if (s.stage == RunStage.READY) {
@@ -284,8 +286,8 @@ class DakaAccessibility : AccessibilityService() {
             DakaApp.store.flag(s.id, "launched")
             s.launchElapsed = nowElapsed
             s.stage = RunStage.ACTIVE
-            phase("第${s.attemptNumber}次：冷启动，缓冲8秒")
-            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            phase("第${s.attemptNumber}次：重新打开，缓冲8秒")
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
             removeWakeOverlay()
             val attempt = s.attemptNumber
             handler.postDelayed({
@@ -431,10 +433,10 @@ class DakaAccessibility : AccessibilityService() {
         WakeActivity.current?.finish()
         try {
             showWakeOverlay()
-            current.stopper = AppStopper(this, current.target, SystemClock.elapsedRealtime())
+            current.exit = AppExit(this, current.target, current.organization, SystemClock.elapsedRealtime())
             handler.postDelayed(tick, 400)
         } catch (_: Exception) {
-            completeCleanup("退出失败：无法打开系统应用信息")
+            completeCleanup("退出失败：无法开始页面收尾")
         }
         UploadJob.kick(this)
     }
@@ -447,6 +449,14 @@ class DakaAccessibility : AccessibilityService() {
         DakaApp.store.note(current.id, result)
         WakeActivity.current?.finish()
         release()
+        requestScreenOff { result ->
+            DakaApp.store.sleepResult(current.id, result)
+            UploadJob.kick(this)
+        }
+        UploadJob.kick(this)
+    }
+
+    private fun requestScreenOff(onResult: (String) -> Unit) {
         var requested = false
         if (Build.VERSION.SDK_INT >= 28) requested = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
         if (!requested) {
@@ -458,10 +468,8 @@ class DakaAccessibility : AccessibilityService() {
         val used = requested
         handler.postDelayed({
             val off = !getSystemService(PowerManager::class.java).isInteractive
-            DakaApp.store.sleepResult(current.id, if (off) "已熄屏" else if (used) "熄屏请求未生效，请检查" else "使用系统超时熄屏")
-            UploadJob.kick(this)
+            onResult(if (off) "已熄屏" else if (used) "熄屏请求未生效，请检查" else "使用系统超时熄屏")
         }, 700)
-        UploadJob.kick(this)
     }
 
     fun diagnostic(): String {

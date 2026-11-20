@@ -9,13 +9,10 @@ object RetryPolicy {
         attempts < MAX_ATTEMPTS && remainingMillis >= MIN_RETRY_BUDGET
 }
 
-object StopSafety {
-    val stopLabels = setOf("强行停止", "强制停止", "结束运行", "Force stop", "FORCE STOP")
-
-    fun isTargetHeader(settingsPackage: String, header: String, targetLabel: String): Boolean =
-        settingsPackage == "com.android.settings" && header == targetLabel && targetLabel.isNotBlank()
-
-    fun mayConfirm(settingsPackage: String, targetWasVerified: Boolean, dialogText: String): Boolean =
-        settingsPackage == "com.android.settings" && targetWasVerified &&
-            stopLabels.any { dialogText.contains(it, ignoreCase = true) }
+object ExitEvidence {
+    fun hasSuccessPrompt(texts: List<String>) = texts.any { it == "打卡成功" }
+    fun isWorkbench(texts: List<String>, organization: String): Boolean =
+        organization.isNotBlank() && texts.any { it == organization } &&
+            texts.any { it.contains("今日考勤") } && !hasSuccessPrompt(texts) &&
+            texts.any { text -> listOf("上班打卡", "下班打卡", "外勤打卡").any(text::startsWith) }
 }

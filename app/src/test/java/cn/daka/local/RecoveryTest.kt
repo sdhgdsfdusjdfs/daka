@@ -12,13 +12,14 @@ class RecoveryTest {
         assertFalse(RetryPolicy.canRetry(1, -100))
     }
 
-    @Test fun forceStopRequiresCorrectSystemPageAndApplication() {
-        assertTrue(StopSafety.isTargetHeader("com.android.settings", "得力e+", "得力e+"))
-        assertFalse(StopSafety.isTargetHeader("com.android.settings", "支付宝", "得力e+"))
-        assertFalse(StopSafety.isTargetHeader("some.ad.app", "得力e+", "得力e+"))
-        assertFalse(StopSafety.mayConfirm("com.android.settings", false, "强行停止该应用？"))
-        assertFalse(StopSafety.mayConfirm("com.android.settings", true, "卸载该应用？"))
-        assertTrue(StopSafety.mayConfirm("com.android.settings", true, "强行停止该应用？"))
+    @Test fun workbenchMustMatchOrganizationAndHaveNoSuccessModal() {
+        val workbench = listOf("数统803", "今日考勤", "上班打卡 09:10")
+        assertTrue(ExitEvidence.isWorkbench(workbench, "数统803"))
+        assertTrue(ExitEvidence.isWorkbench(listOf("数统803", "今日考勤", "外勤打卡"), "数统803"))
+        assertFalse(ExitEvidence.isWorkbench(workbench, "其他组织"))
+        assertFalse(ExitEvidence.isWorkbench(workbench + "打卡成功", "数统803"))
+        assertFalse(ExitEvidence.isWorkbench(listOf("数统803", "登录"), "数统803"))
+        assertFalse(ExitEvidence.isWorkbench(workbench, ""))
     }
 
     @Test fun navigationReturnsToParentInsteadOfLeavingApp() {

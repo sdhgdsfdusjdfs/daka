@@ -395,16 +395,17 @@ class MainActivity : Activity() {
         button("取消设备管理激活（卸载前使用）") { admin.removeActiveAdmin(ComponentName(this, ScreenAdmin::class.java)); permissions() }
         text("请允许自启动和后台运行。充电时保持唤醒的开发者选项应关闭。荣耀／vivo 的实际菜单以手机界面为准。")
         text("运行测试", 19f)
-        text("只测亮屏时不会打开得力。真实打卡测试会彻底退出后重新进入得力。", 13f)
+        text("只测亮屏时不会打开得力。退出测试只打开目标应用，不操作打卡按钮。", 13f)
         button("两分钟后测试亮屏") { Scheduler.testWake(this); message("已安排两分钟后测试，请返回桌面并熄屏。") }
         button("十秒后快速测试亮屏") { Scheduler.testWake(this, 10_000); message("已安排十秒后测试，请返回桌面并熄屏。") }
         text("最近亮屏测试：${cfg.text("wakeTestResult", "尚未测试")}", 13f)
         button("选择计划进行真实打卡测试") { realTest() }
-        button("仅测试彻底退出") {
+        button("测试打开并退到桌面") {
             if (DakaAccessibility.instance == null || cfg.target.isBlank()) message("请先配置目标应用并开启无障碍")
-            else DakaAccessibility.instance?.testStopTarget()
+            else AlertDialog.Builder(this).setMessage("测试会打开得力，等待8秒后返回工作台、退到桌面并熄屏。助手不会点击打卡按钮，目标应用自身仍可能自动打卡。现在开始？").setPositiveButton("开始测试") { _, _ -> DakaAccessibility.instance?.testExitTarget() }.setNegativeButton("取消", null).show()
         }
         text("最近退出测试：${cfg.text("stopTestResult", "尚未测试")}", 13f)
+        text("退出测试熄屏：${cfg.text("exitTestSleepResult", "尚未测试")}", 13f)
         button("停止当前操作") { DakaAccessibility.instance?.cancelRun(); message("已停止后续打卡操作，正在退出收尾。") }
         button("刷新检查") { permissions() }
         button("五秒后采集目标页面结构（用于适配）") {
