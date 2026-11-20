@@ -41,12 +41,15 @@ try {
     & $gradle --no-daemon testDebugUnitTest lintDebug assembleRelease
     if ($LASTEXITCODE -ne 0) { throw '构建或检查失败，请查看上方输出。' }
     New-Item -ItemType Directory -Path "$projectRoot\releases" -Force | Out-Null
-    $apk = "$projectRoot\releases\daka-0.1.0.apk"
+    $buildConfigText = Get-Content -LiteralPath "$projectRoot\app\build.gradle.kts" -Raw
+    $versionName = [regex]::Match($buildConfigText, 'versionName\s*=\s*"([^"]+)"').Groups[1].Value
+    if (!$versionName) { throw '无法读取应用版本号' }
+    $apk = "$projectRoot\releases\daka-$versionName.apk"
     Copy-Item -LiteralPath "$projectRoot\app\build\outputs\apk\release\app-release.apk" -Destination $apk -Force
     & "$SdkRoot\build-tools\35.0.0\apksigner.bat" verify --verbose $apk
     if ($LASTEXITCODE -ne 0) { throw 'APK 签名校验失败' }
     $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath "$projectRoot\releases\SHA256SUMS.txt" -Value "$hash  daka-0.1.0.apk" -Encoding ascii
+    Set-Content -LiteralPath "$projectRoot\releases\SHA256SUMS.txt" -Value "$hash  daka-$versionName.apk" -Encoding ascii
     Write-Output "完成：$apk"
 } finally {
     Remove-Item Env:DAKA_STORE_PASSWORD -ErrorAction SilentlyContinue

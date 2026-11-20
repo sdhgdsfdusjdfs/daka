@@ -14,7 +14,6 @@ object Times {
     val zone: TimeZone = TimeZone.getTimeZone("Asia/Shanghai")
     fun format(at: Long, pattern: String = "yyyy-MM-dd HH:mm:ss"): String = SimpleDateFormat(pattern, Locale.US).apply { timeZone = zone }.format(Date(at))
     fun day(at: Long) = format(at, "yyyy-MM-dd")
-    fun month(at: Long) = format(at, "yyyy-MM")
     fun calendar(at: Long) = Calendar.getInstance(zone).apply { timeInMillis = at }
     fun minuteText(minute: Int) = String.format(Locale.US, "%02d:%02d", minute / 60, minute % 60)
     fun defaults() = listOf(Plan("am-in", "上午上班", 550, "上班"), Plan("am-out", "上午下班", 695, "下班"), Plan("pm-in", "下午上班", 820, "上班"), Plan("pm-out", "下午下班", 1085, "下班"))

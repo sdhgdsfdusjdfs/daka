@@ -29,7 +29,7 @@
 - [荣耀状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/honor8-main/status.md)
 - [vivo 状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-test/status.md)
 
-状态页显示最近上报、总开关、无障碍状态、下一次任务和最近四次结果。本月日志链接位于页末。任务开始和结束时安排同步，平时约半小时一次心跳；安卓休眠和网络状况可能造成延迟。
+状态页显示最近上报、总开关、无障碍状态、下一次任务和最近四次结果。当天日志链接位于页末。任务开始和结束时安排同步，平时约半小时一次心跳；安卓休眠和网络状况可能造成延迟。
 
 GitHub 页面本身为静态文件，需要刷新。最后上报超过约 90 分钟时应人工检查，无法仅凭旧的“已连接”文字判断手机当前在线。正式机尚未上报之前，初始化状态明确显示“尚未连接”。
 
@@ -45,3 +45,9 @@ GitHub 页面本身为静态文件，需要刷新。最后上报超过约 90 分
 
 - [限定权限令牌](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 - [Contents API](https://docs.github.com/en/rest/repos/contents)
+
+## 每日文件
+
+自 0.2.0 起，日志目录每天生成一个 `YYYY-MM-DD.md` 文件，状态页链接到当天记录，`logs/README.md` 提供日期入口。表格包含尝试次数、最终结果、退出和熄屏状态，展开执行过程可看每次异常和重试。
+
+旧月度文件保留为存档，已有远程记录可通过 `scripts/split-monthly-logs.py` 拆分。手机安装新版后按日期自动写入，在统一安装前旧客户端仍可能继续更新旧月度文件。

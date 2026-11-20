@@ -69,10 +69,21 @@ class GitHubSync(private val cfg: Config) {
 
 object RemoteText {
     private fun clean(s: String) = s.replace("|", "／").replace("\n", " ").replace("\r", " ").take(300)
-    fun log(month: String): String = buildString {
-        append("# ${DakaApp.config.device} · $month 执行记录\n\n时间均为北京时间。成功表示本次页面回执已确认，班次以单位考勤报表核对。\n\n")
-        append("| 计划时间 | 名称 | 类型 | 开始 | 回执 | 结果 | 说明 | 熄屏 |\n|---|---|---|---|---|---|---|---|\n")
-        DakaApp.store.month(month).forEach { r -> append("| ${Times.format(r.scheduled)} | ${clean(r.name)} | ${r.kind} | ${Times.format(r.started, "HH:mm:ss")} | ${if (r.receipt > 0) Times.format(r.receipt, "HH:mm:ss") else "—"} | ${r.outcome} | ${clean(r.detail)} | ${clean(r.sleep)} |\n") }
+    fun log(date: String): String = buildString {
+        append("# ${DakaApp.config.device} · $date 执行记录\n\n时间均为北京时间。成功表示本次页面回执已确认，班次以单位考勤报表核对。\n\n")
+        append("| 计划时间 | 名称 | 类型 | 开始 | 回执 | 结果 | 尝试 | 说明 | 退出 | 熄屏 |\n|---|---|---|---|---|---|---|---|---|---|\n")
+        val runs = DakaApp.store.day(date)
+        runs.forEach { r -> append("| ${Times.format(r.scheduled)} | ${clean(r.name)} | ${r.kind} | ${Times.format(r.started, "HH:mm:ss")} | ${if (r.receipt > 0) Times.format(r.receipt, "HH:mm:ss") else "—"} | ${r.outcome} | ${r.attempts} | ${clean(r.detail)} | ${clean(r.cleanup)} | ${clean(r.sleep)} |\n") }
+        runs.forEach { run ->
+            val title = "${Times.format(run.scheduled, "HH:mm:ss")} ${clean(run.name)}".replace("<", "&lt;").replace(">", "&gt;")
+            append("\n<details><summary>$title · 执行过程</summary>\n\n```text\n")
+            append(DakaApp.store.steps(run.id))
+            append("```\n</details>\n")
+        }
+    }
+    fun index(): String = buildString {
+        append("# 按日期查看执行日志\n\n每天一个文件，日期按北京时间计算。\n\n")
+        DakaApp.store.logDates().forEach { date -> append("- [$date]($date.md)\n") }
     }
     fun status(c: Context): String = buildString {
         val cfg = DakaApp.config; val now = System.currentTimeMillis()
@@ -82,7 +93,7 @@ object RemoteText {
         val next = Scheduler.next()
         append("# ${cfg.device} 状态\n\n")
         append("快照生成时间：${Times.format(now)}（北京时间）。请刷新本页查看更新。\n\n")
-        append("最近上报超过约 90 分钟时，状态可能过期。休眠、网络或工具停止都可能造成延迟，请结合下次计划和月度记录检查。\n\n")
+        append("最近上报超过约 90 分钟时，状态可能过期。休眠、网络或工具停止都可能造成延迟，请结合下次计划和每日记录检查。\n\n")
         append("| 项目 | 状态 |\n|---|---|\n")
         append("| 计划总开关 | ${if (cfg.enabled) "启用" else "暂停"} |\n| 无障碍连接 | ${if (DakaAccessibility.instance != null) "已连接" else "未连接"} |\n")
         append("| 精确闹钟 | ${if (Scheduler.precise(c)) "已允许" else "未允许"} |\n| 电量／供电 | $level%／${if (plugged) "接电" else "电池"} |\n")
@@ -90,7 +101,7 @@ object RemoteText {
         append("| 上次上传确认 | ${clean(cfg.text("lastUpload", "尚无"))} |\n| 待同步文件数 | ${DakaApp.store.pending().size} |\n")
         append("\n## 最近四次\n\n| 计划时间 | 任务 | 结果 | 说明 |\n|---|---|---|---|\n")
         DakaApp.store.recent(4).forEach { r -> append("| ${Times.format(r.scheduled)} | ${clean(r.name)} | ${r.outcome} | ${clean(r.detail)} |\n") }
-        append("\n[本月完整记录](logs/${Times.month(now)}.md)\n")
+        append("\n[今天的执行记录](${DailyLogs.path(now)}) · [按日期查看全部记录](logs/)\n")
     }
 }
 
@@ -119,7 +130,11 @@ class UploadJob : JobService() {
                 if (cfg.secret("github").isNotBlank() && retryAt <= System.currentTimeMillis()) {
                     val client = GitHubSync(cfg)
                     for ((path, revision) in db.pending().take(24)) {
-                        val content = if (path == "status.md") RemoteText.status(this) else RemoteText.log(path.removePrefix("logs/").removeSuffix(".md"))
+                        val content = when (path) {
+                            "status.md" -> RemoteText.status(this)
+                            "logs/README.md" -> RemoteText.index()
+                            else -> RemoteText.log(path.removePrefix("logs/").removeSuffix(".md"))
+                        }
                         client.put(path, content); db.acknowledge(path, revision)
                         cfg.set("lastUpload", Times.format(System.currentTimeMillis())); cfg.set("syncError", ""); cfg.set("retryAt", "0")
                     }
