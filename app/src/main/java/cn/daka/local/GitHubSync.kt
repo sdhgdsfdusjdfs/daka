@@ -27,7 +27,7 @@ class GitHubSync(private val cfg: Config) {
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repository)) { "仓库格式应为 owner/repo" }
         val token = cfg.secret("github")
         require(token.isNotBlank()) { "请配置 GitHub 访问令牌" }
-        val conn = URL("https://api.github.com/repos/$repository/$path").openConnection() as HttpsURLConnection
+        val conn = URL(GitHubRoutes.repositoryUrl(repository, path)).openConnection() as HttpsURLConnection
         try {
             conn.requestMethod = method; conn.connectTimeout = 12_000; conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/vnd.github+json")
