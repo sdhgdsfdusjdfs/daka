@@ -1,6 +1,6 @@
 # 同仓库日志配置
 
-项目仓库为 `sdhgdsfdusjdfs/daka`，日志分支为 `device-logs`，预设目录为 `devices/honor8-main` 和 `devices/vivo-test`。
+项目仓库为 `sdhgdsfdusjdfs/daka`，日志分支为 `device-logs`，正式机目录为 `devices/vivo-x21-main`，原测试机目录为 `devices/vivo-test`；`devices/honor8-main` 保留为旧预设占位。
 
 用户于 2026-11-19 明确选择保留公开，接受运行日志公开可见。手机凭据保存在本地，上传内容为计划、执行时间、结果与简短状态。
 
@@ -26,7 +26,7 @@
 
 日常手机登录 GitHub，打开：
 
-- [荣耀状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/honor8-main/status.md)
+- [vivo X21 正式机状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-x21-main/status.md)
 - [vivo 状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-test/status.md)
 
 状态页显示最近上报、总开关、无障碍状态、下一次任务和最近四次结果。当天日志链接位于页末。任务开始和结束时安排同步，平时约半小时一次心跳；安卓休眠和网络状况可能造成延迟。

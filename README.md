@@ -6,17 +6,18 @@
 
 ## 安装与使用
 
-1. 安装 [`releases/daka-0.2.2.apk`](releases/daka-0.2.2.apk)。安卓最低版本为 6.0。
+1. 安装 [`releases/daka-0.2.3.apk`](releases/daka-0.2.3.apk)。安卓最低版本为 6.0。
 2. 新手机先按[新手机安装与避坑指南](docs/新手机安装与避坑指南.md)逐项配置权限、账号和计划，并完成黑屏测试。简要入口见[手机配置说明](docs/手机安装与配置.md)。
 3. 按[GitHub 日志配置](docs/GitHub日志配置.md)设置限定本仓库的访问令牌。
 4. 先完成“两分钟后测试亮屏”，再执行用户知情的真实打卡测试。
-5. 正式机荣耀 8 通过连续运行验收后启用无人值守。vivo 测试通过不能代替荣耀 8 验收。
+5. 正式机现改为 vivo X21（Android 9），设备别名 `vivo-x21-main`；通过连续运行验收后启用无人值守。原荣耀 8 预设目录仅保留为历史占位。
 
 ## 远程状态
 
 源码使用当前项目分支。手机状态与执行日志写入同一仓库的 `device-logs` 分支。
 
-- [荣耀 8 状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/honor8-main/status.md)
+- [vivo X21 正式机状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-x21-main/status.md)
+- [vivo X21 每日日志](https://github.com/sdhgdsfdusjdfs/daka/tree/device-logs/devices/vivo-x21-main/logs)
 - [vivo 测试机状态](https://github.com/sdhgdsfdusjdfs/daka/blob/device-logs/devices/vivo-test/status.md)
 
 最后上报时间可用于判断状态是否过期。页面“成功”代表 App 本次回执被确认，班次归属仍需与单位记录核对。具体开发检查和实机待测项见[验收记录](qa/验收记录.md)。

@@ -12,6 +12,13 @@ object Scheduler {
     private fun alarm(c: Context) = c.getSystemService(AlarmManager::class.java)
     fun precise(c: Context) = Build.VERSION.SDK_INT < 31 || alarm(c).canScheduleExactAlarms()
     private fun pending(c: Context, i: Intent, code: Int) = PendingIntent.getBroadcast(c, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun schedule(c: Context, at: Long, operation: PendingIntent) {
+        if (Build.VERSION.SDK_INT <= 28) {
+            val show = PendingIntent.getActivity(c, 30, Intent(c, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            alarm(c).setAlarmClock(AlarmManager.AlarmClockInfo(at, show), operation)
+        } else alarm(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+    }
     fun next(): Occurrence? = if (DakaApp.config.enabled) Times.next(DakaApp.config.plans(), DakaApp.config.rules(), System.currentTimeMillis()) else null
     fun reschedule(c: Context, recover: Boolean = false) {
         val cfg = DakaApp.config
@@ -26,7 +33,7 @@ object Scheduler {
         val next = next()
         if (next != null) {
             val i = Intent(c, AlarmReceiver::class.java).putExtra("plan", next.plan.id).putExtra("at", next.at).putExtra("revision", cfg.revision)
-            alarm(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.at, pending(c, i, 1))
+            schedule(c, next.at, pending(c, i, 1))
         }
         DakaApp.store.dirtyStatus()
     }
@@ -60,7 +67,7 @@ object Scheduler {
     }
     fun testWake(c: Context, delayMillis: Long = 120_000) {
         check(precise(c)) { "请先允许精确闹钟" }
-        alarm(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + delayMillis, pending(c, Intent(c, AlarmReceiver::class.java).putExtra("wakeTest", true), 2))
+        schedule(c, System.currentTimeMillis() + delayMillis, pending(c, Intent(c, AlarmReceiver::class.java).putExtra("wakeTest", true), 2))
     }
 }
 

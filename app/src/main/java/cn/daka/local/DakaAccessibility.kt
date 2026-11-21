@@ -168,7 +168,11 @@ class DakaAccessibility : AccessibilityService() {
         if (!pm.isInteractive) {
             runCatching {
                 screenLock = pm.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    "$packageName:screen-wake").apply { acquire(8_000) }
+                    "$packageName:screen-wake").apply {
+                    // Older vivo builds can immediately return to sleep when the display lock ends.
+                    // Keep it for the bounded task on those devices, then release during cleanup.
+                    acquire(if (Build.VERSION.SDK_INT <= 28) timeout else 8_000)
+                }
             }.onFailure { DakaApp.config.set("wakeDiagnostic", "系统拒绝直接亮屏请求") }
         }
     }
